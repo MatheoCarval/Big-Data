@@ -1,6 +1,9 @@
-CREATE SCHEMA IF NOT EXISTS bronze_s2;
 
-CREATE TABLE IF NOT EXISTS bronze_s2.etablissement_sante (
+
+CREATE SCHEMA IF NOT EXISTS bronze_csv;
+
+-- 3 tables correspondants à la source 2 
+CREATE TABLE IF NOT EXISTS bronze_csv.etablissement_sante (
     adresse TEXT,
     cedex TEXT,
     code_commune TEXT,
@@ -27,7 +30,7 @@ CREATE TABLE IF NOT EXISTS bronze_s2.etablissement_sante (
     voie TEXT
 );
 
-CREATE TABLE IF NOT EXISTS bronze_s2.professionnel_sante (
+CREATE TABLE IF NOT EXISTS bronze_csv.professionnel_sante (
     identifiant TEXT,
     civilite TEXT,
     categorie_professionnelle TEXT,
@@ -39,8 +42,21 @@ CREATE TABLE IF NOT EXISTS bronze_s2.professionnel_sante (
     type_identifiant TEXT
 );
 
-CREATE TABLE IF NOT EXISTS bronze_s2.activite_professionnel_sante (
+CREATE TABLE IF NOT EXISTS bronze_csv.activite_professionnel_sante (
     identifiant TEXT,
     identifiant_organisation TEXT,
     mode_exercice TEXT
+);
+
+-- Table des hospitalisations
+CREATE SCHEMA IF NOT EXISTS bronze_hospitalisations;
+
+CREATE TABLE IF NOT EXISTS bronze_hospitalisations."Hospitalisations" (
+    "Num_Hospitalisation" TEXT,
+    "Id_patient" TEXT,
+    identifiant_organisation TEXT,
+    "Code_diagnostic" TEXT,
+    "Suite_diagnostic_consultation" TEXT,
+    "Date_Entree" TEXT,
+    "Jour_Hospitalisation" TEXT
 );
