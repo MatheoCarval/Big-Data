@@ -71,6 +71,14 @@ cp .env.example .env        # puis renseigner les mots de passe et le sel
 
 Copier le contenu du pack **DATA 2024** dans `data/` (le dossier n'est pas versionné : données de santé).
 
+Extraction de la source S3 (satisfaction) vers PostgreSQL, schéma `bronze_s3` (Python 3 et `psql` suffisent, aucune dépendance) :
+
+```bash
+set -a; . ./.env; set +a
+createdb -h localhost -U postgres chu_bronze      # une seule fois
+python3 -m pipelines.bronze.s3_satisfaction       # relançable sans doublon
+```
+
 Le lancement de la plateforme (`docker compose up`) sera documenté ici une fois `infra/` en place.
 
 ## Travailler sur le projet

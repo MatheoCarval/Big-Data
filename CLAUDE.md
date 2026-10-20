@@ -286,6 +286,12 @@ gh issue view 12
 # Source S1 en local (PostgreSQL 14 installé sur le poste)
 psql -h localhost -U postgres -d postgres -c '\dt'
 
+# Source S3 satisfaction -> PostgreSQL (schéma bronze_s3), idempotent
+set -a; . ./.env; set +a
+createdb -h localhost -U postgres chu_bronze      # une seule fois
+python3 -m pipelines.bronze.s3_satisfaction       # ou --ddl pour voir les tables sans base
+python3 -m unittest tests.test_s3_satisfaction
+
 # Plateforme (à compléter quand infra/docker-compose.yml existera)
 docker compose -f infra/docker-compose.yml up -d
 ```
