@@ -1,0 +1,40 @@
+# Données de santé et secrets : jamais versionnés
+data/*
+!data/README.md
+.env
+*.sql.gz
+*.dump
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Spark / Delta / Airflow
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+airflow/logs/
+logs/
+
+# Great Expectations (sorties générées)
+quality/uncommitted/
+
+# Node / React
+node_modules/
+front/dist/
+front/build/
+
+# IDE et OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code (réglages locaux)
+.claude/settings.local.json
