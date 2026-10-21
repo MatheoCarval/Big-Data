@@ -71,7 +71,40 @@ cp .env.example .env        # puis renseigner les mots de passe et le sel
 
 Copier le contenu du pack **DATA 2024** dans `data/` (le dossier n'est pas versionné : données de santé).
 
-Le lancement de la plateforme (`docker compose up`) sera documenté ici une fois `infra/` en place.
+### Plateforme
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml up -d --build
+```
+
+Services disponibles pour l'instant :
+
+| Service | Accès depuis le poste | Accès depuis un conteneur (réseau `chu`) |
+|---|---|---|
+| FTP de simulation (sources S3 et S4) | `ftp://localhost:2121` | `ftp://ftp:21` |
+
+### FTP de simulation (S3 satisfaction, S4 décès)
+
+Le serveur reproduit le dépôt FTP des sources : `/satisfaction/<annee>/…` et `/deces/…`. Deux comptes, définis dans `.env` :
+
+- `FTP_USER` : lecture seule, utilisé par les pipelines et Airflow ;
+- `FTP_DEPOT_USER` : écriture, simule le producteur qui dépose les fichiers.
+
+```bash
+set -a; . ./.env; set +a
+
+# une seule fois : déposer les fichiers du pack DATA 2024 (≈ 2 Go, relançable sans doublon)
+python -m pipelines.common.ftp initialiser "data"
+
+# simuler l'arrivée d'un nouveau fichier
+python -m pipelines.common.ftp deposer nouveau.csv satisfaction/2021
+
+# côté pipelines : lister et récupérer
+python -m pipelines.common.ftp lister satisfaction
+python -m pipelines.common.ftp telecharger satisfaction data/ftp/satisfaction
+```
+
+Les fichiers sont transférés sous un nom temporaire `.part` puis renommés : un capteur ne voit jamais un fichier incomplet. Les données déposées sont conservées dans le volume Docker `chu_ftp_depot`.
 
 ## Travailler sur le projet
 

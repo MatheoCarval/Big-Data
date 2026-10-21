@@ -286,8 +286,17 @@ gh issue view 12
 # Source S1 en local (PostgreSQL 14 installé sur le poste)
 psql -h localhost -U postgres -d postgres -c '\dt'
 
-# Plateforme (à compléter quand infra/docker-compose.yml existera)
-docker compose -f infra/docker-compose.yml up -d
+# Plateforme (le .env est à la racine, le compose dans infra/)
+docker compose --env-file .env -f infra/docker-compose.yml up -d --build
+
+# FTP de simulation S3 / S4 : poste -> localhost:2121, conteneurs du réseau chu -> ftp:21
+set -a; . ./.env; set +a
+python -m pipelines.common.ftp initialiser "data"                 # dépôt initial DATA 2024 (compte FTP_DEPOT_USER)
+python -m pipelines.common.ftp deposer nouveau.csv satisfaction/2021
+python -m pipelines.common.ftp telecharger satisfaction data/ftp/satisfaction   # compte lecture seule FTP_USER
+
+# Tests du client FTP (pyftpdlib requis : on les lance dans l'image du serveur)
+docker run --rm -v "$PWD:/app" -w /app chu-ftp:local python -m unittest tests.test_ftp
 ```
 
 Toute commande ajoutée au projet (lancer un DAG, un benchmark, les tests) doit être documentée ici et dans le README.
