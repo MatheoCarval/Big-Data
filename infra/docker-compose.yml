@@ -1,0 +1,31 @@
+name: chu
+
+services:
+  ftp:
+    build: ./ftp
+    image: chu-ftp:local
+    container_name: chu-ftp
+    environment:
+      FTP_USER: ${FTP_USER:?renseigner FTP_USER dans .env}
+      FTP_PASSWORD: ${FTP_PASSWORD:?renseigner FTP_PASSWORD dans .env}
+      FTP_DEPOT_USER: ${FTP_DEPOT_USER:?renseigner FTP_DEPOT_USER dans .env}
+      FTP_DEPOT_PASSWORD: ${FTP_DEPOT_PASSWORD:?renseigner FTP_DEPOT_PASSWORD dans .env}
+    ports:
+      - "2121:21"
+      - "30000-30009:30000-30009"
+    volumes:
+      - ftp_depot:/srv/ftp
+    networks:
+      - chu
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 21), 2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  ftp_depot:
+
+networks:
+  chu:
+    name: chu
