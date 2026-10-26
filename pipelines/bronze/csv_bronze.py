@@ -9,8 +9,8 @@ s'ajoute à côté de l'ancienne (Silver dédoublonnera).
 
 Variables d'environnement :
     DATA_DIR    dossier des CSV, « data » par défaut
-    LAKE_ROOT   racine du lac, « s3a:// » par défaut ; tant que le stockage S3 n'est pas branché
-                (aucune configuration S3A ici), pointer vers un dossier local
+    LAKE_ROOT   racine du lac, « s3a:// » par défaut (MinIO, voir pipelines/common/session_spark.py
+                pour MINIO_ENDPOINT et les identifiants) ; un dossier local désactive S3A
 
 Une ligne dont la structure est cassée (trop ou pas assez de champs) va dans
 <LAKE_ROOT>/silver/_rejets/<source>, avant l'écriture Bronze : après une panne suivie d'une
@@ -30,9 +30,10 @@ from pathlib import Path
 
 from delta.tables import DeltaTable
 from pyspark import StorageLevel
-from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
+
+from pipelines.common.session_spark import creer_session
 
 log = logging.getLogger("csv_bronze")
 
@@ -42,6 +43,7 @@ LIGNE_BRUTE = "_ligne_brute"
 TAILLE_BLOC = 1024 * 1024
 COLONNES_TECHNIQUES = ("_ingestion_ts", "_source", "_batch_id", "_fichier_origine")
 
+# Définition du schéma du journal d'ingestion : doit rester identique à pipelines/bronze/CSV_journal.sql
 SCHEMA_JOURNAL = StructType([
     StructField("job", StringType()),
     StructField("source", StringType()),
@@ -56,12 +58,13 @@ SCHEMA_JOURNAL = StructType([
     StructField("fin", TimestampType()),
 ])
 
-# Définition du chemin cible
+# Définition du chemin cible dans le lake
 def chemin_lake(*parties):
     racine = os.environ.get("LAKE_ROOT") or "s3a://"
     separateur = "" if racine.endswith("/") else "/"
     return racine + separateur + "/".join(parties)
 
+# Définition d'une classe pour représenter une source CSV
 @dataclass(frozen=True)
 class SourceCsv:
     source: str
@@ -82,7 +85,7 @@ class Compteurs:
     ecrites: int = 0
     rejetees: int = 0
 
-
+# Définition du catalogue des sources CSV
 # Les colonnes doivent rester identiques à pipelines/bronze/CSV_schema.sql
 CATALOGUE = (
     SourceCsv(
@@ -132,24 +135,7 @@ CATALOGUE = (
 
 # INGESTION________________________________________________________________________________________________
 
-# creer_session permet de créer une session Spark avec les extensions Delta Lake activées. 
-# DELTA_JARS_INCLUS à "1" configure Spark avec les bibliothèques Delta Lake via pip.
-def creer_session():
-    builder = (
-        SparkSession.builder.appName(JOB)
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "2g"))
-        .config("spark.ui.enabled", "false")
-    )
-    if os.environ.get("DELTA_JARS_INCLUS") != "1":
-        from delta import configure_spark_with_delta_pip
-
-        builder = configure_spark_with_delta_pip(builder)
-    return builder.getOrCreate()
-
-
+# Calculer l'empreinte du contenu du fichier
 def calculer_batch_id(chemin):
     """Empreinte du contenu du fichier : le même fichier redonne toujours le même lot."""
     sha = hashlib.sha256()
@@ -158,7 +144,7 @@ def calculer_batch_id(chemin):
             sha.update(bloc)
     return sha.hexdigest()[:12]
 
-
+# Vérifier si un lot a déjà été ingéré
 def lot_deja_ingere(spark, chemin_table, batch_id):
     """Vrai si la table Delta de `chemin_table` contient déjà des lignes de ce lot."""
     if not DeltaTable.isDeltaTable(spark, chemin_table):
@@ -167,7 +153,7 @@ def lot_deja_ingere(spark, chemin_table, batch_id):
     
     return not lot.isEmpty()
 
-
+# Ajouter un DataFrame à une table Delta
 def ajouter_delta(spark, df, chemin):
     """Ajoute `df` à la table Delta de `chemin`, créée en append-only si elle n'existe pas."""
     (
@@ -179,7 +165,7 @@ def ajouter_delta(spark, df, chemin):
     )
     df.write.format("delta").mode("append").save(chemin)
 
-
+# Vérifier l'en-tête du fichier CSV
 def verifier_entete(chemin_fichier, cfg):
     """Échoue tout de suite si la source a changé de format (noms ou ordre des colonnes)."""
     with open(chemin_fichier, "rb") as f:
@@ -190,7 +176,7 @@ def verifier_entete(chemin_fichier, cfg):
             f"En-tête inattendu dans {cfg.fichier} : attendu {list(cfg.colonnes)}, trouvé {trouvees}"
         )
 
-
+# Lire le CSV avec Spark, en ajoutant la colonne technique _ligne_brute pour les lignes malformées
 def lire_csv(spark, chemin_fichier, cfg):
     schema = StructType(
         [StructField(c, StringType()) for c in cfg.colonnes] + [StructField(LIGNE_BRUTE, StringType())]
@@ -207,7 +193,7 @@ def lire_csv(spark, chemin_fichier, cfg):
         .csv(str(chemin_fichier))
     )
 
-
+# Écrire les lignes rejetées dans Silver/_rejets/<source>
 def ecrire_rejets(spark, rejetees, cfg, batch_id, ingestion_ts):
     rejets = rejetees.select(
         F.lit("ligne_malformee").alias("motif"),
@@ -219,7 +205,7 @@ def ecrire_rejets(spark, rejetees, cfg, batch_id, ingestion_ts):
     )
     ajouter_delta(spark, rejets, chemin_lake("silver", "_rejets", cfg.source))
 
-# charger lit le CSV et l'écrit dans la table Delta, en journalisant les compteurs. Échoue si le nombre de lignes écrites ne correspond pas à l'attendu.
+# "Charger" lit le CSV et l'écrit dans la table Delta, en journalisant les compteurs. Échoue si le nombre de lignes écrites ne correspond pas à l'attendu.
 def charger(spark, cfg, chemin_fichier, batch_id, compteurs, ingestion_ts):
     df = lire_csv(spark, chemin_fichier, cfg).persist(StorageLevel.MEMORY_AND_DISK) # on persiste pour éviter de relire le CSV plusieurs fois
     try:
@@ -248,7 +234,7 @@ def charger(spark, cfg, chemin_fichier, batch_id, compteurs, ingestion_ts):
             f"mais {compteurs.ecrites} écrites dans Bronze"
         )
 
-
+# Journaliser l'exécution dans Bronze/_journal
 def ecrire_journal(spark, cfg, batch_id, compteurs, statut, debut, message):
     fin = datetime.now(timezone.utc)
     log.info(
@@ -283,26 +269,31 @@ def ingerer_csv(spark, cfg, chemin_fichier):
             log.exception("Journal non écrit pour %s", cfg.table)
     return statut
 
-
+# main() ingère toutes les sources demandées et journalise l'exécution. Renvoie 0 si tout s'est bien passé, 1 sinon.
 def main(argv=None):
     tables = [c.table for c in CATALOGUE]
+
+    # Si l'option --table est donnée, on ne traite que les tables demandées
     parser = argparse.ArgumentParser(description="Ingestion des CSV S2 et Hospitalisations vers Bronze")
     parser.add_argument("--table", action="append", choices=tables, help="table à ingérer (défaut : toutes)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     donnees = Path(os.environ.get("DATA_DIR", "data"))
-    spark = creer_session()
+    spark = creer_session(JOB) # Création de la session spark
     echecs = 0
+
+    # Pour chaque source du catalogue, si elle est demandée, on ingère le CSV
     for cfg in CATALOGUE:
-        if args.table and cfg.table not in args.table:
+        # Si l'option --table est donnée, on ne traite que les tables demandées
+        if args.table and cfg.table not in args.table: 
             continue
         try:
             ingerer_csv(spark, cfg, donnees / cfg.dossier / cfg.fichier)
         except Exception:
             log.exception("Échec de l'ingestion de %s", cfg.table)
             echecs += 1
-    return 1 if echecs else 0
+    return 1 if echecs else 0 # 0 si tout s'est bien passé, 1 sinon
 
 
 if __name__ == "__main__":

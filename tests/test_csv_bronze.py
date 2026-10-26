@@ -26,7 +26,9 @@ HOSPITALISATION = next(c for c in csv_bronze.CATALOGUE if c.table == "hosp_hospi
 class TestCsvBronze(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.spark = csv_bronze.creer_session()
+        # session locale : sans LAKE_ROOT, le défaut s3a:// exigerait la configuration MinIO
+        with mock.patch.dict(os.environ, {"LAKE_ROOT": tempfile.gettempdir()}):
+            cls.spark = csv_bronze.creer_session()
 
     @classmethod
     def tearDownClass(cls):
