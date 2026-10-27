@@ -1,0 +1,6 @@
+# Raccourci : « docker compose up -d » depuis la racine suffit (le .env de la racine est lu automatiquement).
+# La définition des services reste dans infra/docker-compose.yml.
+name: chu
+
+include:
+  - infra/docker-compose.yml

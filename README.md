@@ -106,6 +106,31 @@ python -m pipelines.common.ftp telecharger satisfaction data/ftp/satisfaction
 
 Les fichiers sont transférés sous un nom temporaire `.part` puis renommés : un capteur ne voit jamais un fichier incomplet. Les données déposées sont conservées dans le volume Docker `chu_ftp_depot`.
 
+### Ingestion des CSV vers Bronze (S2 et Hospitalisations)
+
+`pipelines/bronze/csv_bronze.py` copie les 4 CSV de `data/` (`Etablissement de SANTE/` et `Hospitalisation/`) dans les tables Delta Bronze décrites par `pipelines/bronze/CSV_schema.sql`, sans aucune transformation. Il nécessite `pyspark==3.5.*`, `delta-spark==3.2.*` et Java 17 (sous Windows, Spark exige en plus `winutils` : passer par Docker ou WSL).
+
+```bash
+# DATA_DIR : dossier des CSV (défaut « data »). LAKE_ROOT : racine du lac (défaut « s3a:// »).
+# Le stockage S3 n'étant pas encore branché, pointer vers un dossier local.
+export DATA_DIR=data LAKE_ROOT=/tmp/lac
+
+python -m pipelines.bronze.csv_bronze                                # les 4 fichiers
+python -m pipelines.bronze.csv_bronze --table s2_etablissement_sante # une seule table
+
+python -m unittest tests.test_csv_bronze                             # tests (données synthétiques)
+```
+
+Relancer le job sur un fichier de même contenu ne recharge rien (le `_batch_id` est l'empreinte du fichier). Chaque exécution ajoute une ligne « lues / écrites / rejetées » à `<LAKE_ROOT>/bronze/_journal` ; les lignes illisibles vont dans `<LAKE_ROOT>/silver/_rejets/<source>`.
+
+#### DAG `dag_etablissements`
+
+`dags/dag_etablissements.py` relance chaque mois l'ingestion des 3 fichiers S2 : une tâche par table, exécutées l'une après l'autre (elles partagent le journal et les rejets). Un référentiel inchangé est ignoré. Airflow n'est pas encore dans `infra/docker-compose.yml` : le DAG est pour l'instant seulement testé, avec un Airflow simulé (il ne nécessite ni Airflow ni Spark).
+
+```bash
+python -m unittest tests.test_dag_etablissements
+```
+
 ## Travailler sur le projet
 
 Les tâches sont suivies dans le tableau [CHU · Pipeline ETL](https://github.com/users/MatheoCarval/projects/2), découpé en phases Socle → Extract → Transform → Load → Restitution.
