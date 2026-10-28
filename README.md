@@ -43,7 +43,7 @@ Le détail des choix est dans [docs/cadrage](docs/cadrage/).
 ```
 .
 ├── infra/              docker-compose et configuration des services
-├── dags/               DAG Airflow (dag_postgres, dag_etablissements, dag_satisfaction, dag_deces, dag_gold)
+├── dags/               DAG Airflow (dag_postgres, dag_etablissements, dag_hospitalisations, dag_satisfaction, dag_deces, dag_gold)
 ├── pipelines/
 │   ├── common/         session Spark, écriture Bronze, tables de rejets, journalisation
 │   ├── bronze/         Extract : sources → Bronze
@@ -81,6 +81,9 @@ Services disponibles pour l'instant :
 
 | Service | Accès depuis le poste | Accès depuis un conteneur (réseau `chu`) |
 |---|---|---|
+| MinIO, API S3 (buckets `bronze`, `silver`, `gold`) | `http://localhost:9000` | `http://minio:9000` |
+| MinIO, console | `http://localhost:9001` | — |
+| Airflow | `http://localhost:8080` | — |
 | FTP de simulation (sources S3 et S4) | `ftp://localhost:2121` | `ftp://ftp:21` |
 
 ### FTP de simulation (S3 satisfaction, S4 décès)
@@ -111,24 +114,34 @@ Les fichiers sont transférés sous un nom temporaire `.part` puis renommés : u
 `pipelines/bronze/csv_bronze.py` copie les 4 CSV de `data/` (`Etablissement de SANTE/` et `Hospitalisation/`) dans les tables Delta Bronze décrites par `pipelines/bronze/CSV_schema.sql`, sans aucune transformation. Il nécessite `pyspark==3.5.*`, `delta-spark==3.2.*` et Java 17 (sous Windows, Spark exige en plus `winutils` : passer par Docker ou WSL).
 
 ```bash
-# DATA_DIR : dossier des CSV (défaut « data »). LAKE_ROOT : racine du lac (défaut « s3a:// »).
-# Le stockage S3 n'étant pas encore branché, pointer vers un dossier local.
-export DATA_DIR=data LAKE_ROOT=/tmp/lac
+# DATA_DIR : dossier des CSV (défaut « data »). LAKE_ROOT : racine du lac (défaut « s3a:// », soit MinIO ;
+# voir MINIO_ENDPOINT dans .env). Un dossier local (ici data/lac, ignoré par git) désactive S3A.
+export DATA_DIR=data LAKE_ROOT=data/lac
 
 python -m pipelines.bronze.csv_bronze                                # les 4 fichiers
 python -m pipelines.bronze.csv_bronze --table s2_etablissement_sante # une seule table
+```
 
-python -m unittest tests.test_csv_bronze                             # tests (données synthétiques)
+Tests Spark (données synthétiques). Sous Windows, Spark ne démarre pas sans `winutils` : on les lance dans un conteneur Java 17 (~1 min après le premier téléchargement de l'image) :
+
+```bash
+# Git Bash sous Windows : préfixer par MSYS_NO_PATHCONV=1 et écrire le chemin « C:/repos/Big-Data » à la place de $PWD
+docker run --rm -v "$PWD:/app:ro" -w /app python:3.11-bookworm bash -c \
+  'apt-get update -qq && apt-get install -y -qq openjdk-17-jre-headless \
+   && pip install -q "pyspark==3.5.*" "delta-spark==3.2.*" \
+   && PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_csv_bronze'
 ```
 
 Relancer le job sur un fichier de même contenu ne recharge rien (le `_batch_id` est l'empreinte du fichier). Chaque exécution ajoute une ligne « lues / écrites / rejetées » à `<LAKE_ROOT>/bronze/_journal` ; les lignes illisibles vont dans `<LAKE_ROOT>/silver/_rejets/<source>`.
 
 #### DAG `dag_etablissements`
 
-`dags/dag_etablissements.py` relance chaque mois l'ingestion des 3 fichiers S2 : une tâche par table, exécutées l'une après l'autre (elles partagent le journal et les rejets). Un référentiel inchangé est ignoré. Airflow n'est pas encore dans `infra/docker-compose.yml` : le DAG est pour l'instant seulement testé, avec un Airflow simulé (il ne nécessite ni Airflow ni Spark).
+`dags/dag_etablissements.py` relance chaque mois l'ingestion des 3 fichiers S2 : une tâche par table, exécutées l'une après l'autre (elles partagent le journal et les rejets). Un référentiel inchangé est ignoré. Le DAG tourne dans l'Airflow du compose (`http://localhost:8080`, `LAKE_ROOT=s3a://` vers MinIO) ; ses tests utilisent un Airflow simulé et ne nécessitent ni Airflow ni Spark.
+
+`dags/dag_hospitalisations.py` fait de même, chaque mois, pour `Hospitalisations.csv` (une seule tâche).
 
 ```bash
-python -m unittest tests.test_dag_etablissements
+python -m unittest tests.test_dag_etablissements tests.test_dag_hospitalisations
 ```
 
 ## Travailler sur le projet

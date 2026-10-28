@@ -234,7 +234,7 @@ Quand tu travailles sur ce dépôt :
 ├── README.md               présentation et démarrage
 ├── .env.example            variables d'environnement attendues
 ├── infra/                  docker-compose.yml, config MinIO, Spark, Hive Metastore, Trino, Airflow, Keycloak, Marquez
-├── dags/                   DAG Airflow : dag_postgres, dag_etablissements, dag_satisfaction, dag_deces, dag_gold
+├── dags/                   DAG Airflow : dag_postgres, dag_etablissements, dag_hospitalisations, dag_satisfaction, dag_deces, dag_gold
 ├── pipelines/
 │   ├── common/             session Spark, écriture Bronze, rejets, journalisation, pseudonymisation
 │   ├── bronze/             EXTRACT   : sources → Bronze
@@ -297,6 +297,16 @@ python -m pipelines.common.ftp telecharger satisfaction data/ftp/satisfaction   
 
 # Tests du client FTP (pyftpdlib requis : on les lance dans l'image du serveur)
 docker run --rm -v "$PWD:/app" -w /app chu-ftp:local python -m unittest tests.test_ftp
+
+# Ingestion des CSV S2 + Hospitalisations vers Bronze (LAKE_ROOT local = pas de S3A)
+export DATA_DIR=data LAKE_ROOT=data/lac
+python -m pipelines.bronze.csv_bronze [--table s2_etablissement_sante]
+
+# Tests Spark (Windows : pas de winutils, on passe par Docker ; Git Bash : MSYS_NO_PATHCONV=1 et chemin C:/…)
+docker run --rm -v "$PWD:/app:ro" -w /app python:3.11-bookworm bash -c \
+  'apt-get update -qq && apt-get install -y -qq openjdk-17-jre-headless \
+   && pip install -q "pyspark==3.5.*" "delta-spark==3.2.*" \
+   && PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_csv_bronze'
 ```
 
 Toute commande ajoutée au projet (lancer un DAG, un benchmark, les tests) doit être documentée ici et dans le README.

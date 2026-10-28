@@ -43,7 +43,7 @@ LIGNE_BRUTE = "_ligne_brute"
 TAILLE_BLOC = 1024 * 1024
 COLONNES_TECHNIQUES = ("_ingestion_ts", "_source", "_batch_id", "_fichier_origine")
 
-# Définition du schéma du journal d'ingestion : doit rester identique à pipelines/bronze/CSV_journal.sql
+# Schéma du journal d'ingestion (une ligne par exécution, table Delta <LAKE_ROOT>/bronze/_journal)
 SCHEMA_JOURNAL = StructType([
     StructField("job", StringType()),
     StructField("source", StringType()),
