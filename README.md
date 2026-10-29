@@ -129,8 +129,10 @@ Tests Spark (données synthétiques). Sous Windows, Spark ne démarre pas sans `
 docker run --rm -v "$PWD:/app:ro" -w /app python:3.11-bookworm bash -c \
   'apt-get update -qq && apt-get install -y -qq openjdk-17-jre-headless \
    && pip install -q "pyspark==3.5.*" "delta-spark==3.2.*" \
-   && PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_csv_bronze'
+   && PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_csv_bronze tests.test_normalize'
 ```
+
+Les tests qui n'écrivent aucun fichier (`tests.test_normalize`) tournent aussi dans le `.venv` sous Windows, avec Java 17 et `PYSPARK_PYTHON` pointant vers le Python du `.venv`.
 
 Relancer le job sur un fichier de même contenu ne recharge rien (le `_batch_id` est l'empreinte du fichier). Chaque exécution ajoute une ligne « lues / écrites / rejetées » à `<LAKE_ROOT>/bronze/_journal` ; les lignes illisibles vont dans `<LAKE_ROOT>/silver/_rejets/<source>`.
 

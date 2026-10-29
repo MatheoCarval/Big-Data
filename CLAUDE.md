@@ -306,7 +306,7 @@ python -m pipelines.bronze.csv_bronze [--table s2_etablissement_sante]
 docker run --rm -v "$PWD:/app:ro" -w /app python:3.11-bookworm bash -c \
   'apt-get update -qq && apt-get install -y -qq openjdk-17-jre-headless \
    && pip install -q "pyspark==3.5.*" "delta-spark==3.2.*" \
-   && PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_csv_bronze'
+   && PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_csv_bronze tests.test_normalize'
 ```
 
 Toute commande ajoutée au projet (lancer un DAG, un benchmark, les tests) doit être documentée ici et dans le README.
