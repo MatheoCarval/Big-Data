@@ -71,6 +71,18 @@ class TestNormalize(unittest.TestCase):
             (None, None),
         ])
 
+    def test_code_postal_restitue_les_zeros_et_controle_le_format(self):
+        self.verifier(normalize.normaliser_code_postal, [
+            ("75008", "75008"),
+            ("1000", "01000"),            # zéro initial perdu
+            (" 20137 ", "20137"),
+            ("2A004", None),              # pas de lettre dans un code postal, même corse
+            ("750081", None),
+            ("", None),
+            ("00000", None),
+            (None, None),
+        ])
+
     def test_libelle_majuscules_sans_accents(self):
         self.verifier(normalize.normaliser_libelle_jointure, [
             ("Hôpital Saint-Joseph", "HOPITAL SAINT-JOSEPH"),

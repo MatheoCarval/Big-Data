@@ -1,7 +1,6 @@
 """Normalisations communes aux jobs Silver : FINESS, INSEE, libellés de jointure, identifiants, clé de substitution.
 
 Fonctions pures sur des colonnes Spark, sans lecture ni écriture : elles se testent sans lac.
-Règles : docs/L1/Livrable_1_Big_Data_(final).pdf, annexe C.1 (Tableau 44) et annexe B.
 """
 
 import unicodedata
@@ -10,11 +9,17 @@ from functools import reduce
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 
+# DEFINITION DES NORMES ========================================================================================
+
 # 9 chiffres, ou 2A / 2B suivi de 7 chiffres (Corse)
 MOTIF_FINESS = r"^(\d{9}|2[AB]\d{7})$"
 # 5 chiffres, ou 2A / 2B suivi de 3 chiffres (Corse)
 MOTIF_INSEE = r"^(\d{5}|2[AB]\d{3})$"
+# 5 chiffres (la Corse a des codes postaux 20xxx, pas de lettre)
+MOTIF_CODE_POSTAL = r"^\d{5}$"
 
+
+# FONCTIONS NORMALISATION ======================================================================================
 
 def _code_normalise(col, longueur, motif):
     """Code nettoyé et complété de zéros à gauche jusqu'à `longueur`, ou null s'il est invalide.
@@ -43,6 +48,11 @@ def normaliser_insee(col_insee):
     return _code_normalise(col_insee, 5, MOTIF_INSEE)
 
 
+# Code postal sur 5 chiffres, zéros initiaux restitués, null si invalide
+def normaliser_code_postal(col_code_postal):
+    return _code_normalise(col_code_postal, 5, MOTIF_CODE_POSTAL)
+
+
 def _libelle_sans_accents(texte):
     """Majuscules, sans accents, espaces simples ; None si le texte est vide.
 
@@ -63,16 +73,20 @@ def normaliser_libelle_jointure(col_libelle):
 
 # Identifiant professionnel sans zéros initiaux ; null s'il est vide ou fait uniquement de zéros
 def normaliser_identifiant_professionnel(col_identifiant):
-    sans_zeros = F.regexp_replace(F.trim(col_identifiant), r"^0+", "")
+    sans_zeros = F.regexp_replace(F.trim(col_identifiant), r"^0+", "")# Retirer les zéros initiaux
     return F.when(sans_zeros != "", sans_zeros)
 
-
+# Calcule la clé de substitution à partir des colonnes identifiants initiales, après normalisation. 
+# La clé est identique d'un chargement à l'autre, même si les colonnes changent de type.
 def cle_substitution(*colonnes):
     """Clé de substitution : abs(xxhash64(clé métier)), identique d'un chargement à l'autre.
 
     La clé métier doit être normalisée avant (casse, espaces, zéros), sinon deux écritures d'un même
     identifiant donnent deux clés. Les colonnes sont converties en texte pour que la clé ne dépende pas
     du type de la source. Null si une colonne est null : le fait pointera alors vers le membre -1.
+
+    xxhash64 est un hash rapide qui produit un bigint signé : abs() le rend positif, ce qui garde -1
+    réservé au membre « Non renseigné ».
     """
-    connues = reduce(lambda a, b: a & b, [c.isNotNull() for c in colonnes])
+    connues = reduce(lambda a, b: a & b, [c.isNotNull() for c in colonnes]) # toutes les colonnes doivent être non nulles pour calculer la clé
     return F.when(connues, F.abs(F.xxhash64(*[c.cast("string") for c in colonnes])))
