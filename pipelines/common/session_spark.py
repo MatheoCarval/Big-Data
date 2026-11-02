@@ -24,6 +24,13 @@ def lac_sur_s3():
     return (os.environ.get("LAKE_ROOT") or "s3a://").startswith("s3a://")
 
 
+def chemin_lake(*parties):
+    """Chemin d'une table du lac : chemin_lake("silver", "etablissement") → <LAKE_ROOT>/silver/etablissement."""
+    racine = os.environ.get("LAKE_ROOT") or "s3a://"
+    separateur = "" if racine.endswith("/") else "/"
+    return racine + separateur + "/".join(parties)
+
+
 def configurer_s3a(builder):
     """Ajoute à `builder` la configuration S3A vers MinIO (adressage par chemin, pas de TLS en local)."""
     endpoint = os.environ["MINIO_ENDPOINT"]

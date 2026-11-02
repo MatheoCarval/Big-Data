@@ -31,9 +31,11 @@ from pathlib import Path
 from delta.tables import DeltaTable
 from pyspark import StorageLevel
 from pyspark.sql import functions as F
-from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import StringType, StructField, StructType
 
-from pipelines.common.session_spark import creer_session
+from pipelines.common.delta_io import ajouter_delta
+from pipelines.common.journal import Compteurs, ecrire_journal
+from pipelines.common.session_spark import chemin_lake, creer_session
 
 log = logging.getLogger("csv_bronze")
 
@@ -42,27 +44,6 @@ SEPARATEUR = ";"
 LIGNE_BRUTE = "_ligne_brute"
 TAILLE_BLOC = 1024 * 1024
 COLONNES_TECHNIQUES = ("_ingestion_ts", "_source", "_batch_id", "_fichier_origine")
-
-# Schéma du journal d'ingestion (une ligne par exécution, table Delta <LAKE_ROOT>/bronze/_journal)
-SCHEMA_JOURNAL = StructType([
-    StructField("job", StringType()),
-    StructField("source", StringType()),
-    StructField("table", StringType()),
-    StructField("batch_id", StringType()),
-    StructField("lignes_lues", LongType()),
-    StructField("lignes_ecrites", LongType()),
-    StructField("lignes_rejetees", LongType()),
-    StructField("statut", StringType()),
-    StructField("message", StringType()),
-    StructField("debut", TimestampType()),
-    StructField("fin", TimestampType()),
-])
-
-# Définition du chemin cible dans le lake
-def chemin_lake(*parties):
-    racine = os.environ.get("LAKE_ROOT") or "s3a://"
-    separateur = "" if racine.endswith("/") else "/"
-    return racine + separateur + "/".join(parties)
 
 # Définition d'une classe pour représenter une source CSV
 @dataclass(frozen=True)
@@ -78,12 +59,6 @@ class SourceCsv:
     def chemin_delta(self):
         return chemin_lake("bronze", self.source, self.table.removeprefix(f"{self.source}_"))
 
-
-@dataclass
-class Compteurs:
-    lues: int = 0
-    ecrites: int = 0
-    rejetees: int = 0
 
 # Définition du catalogue des sources CSV
 # Les colonnes doivent rester identiques à pipelines/bronze/CSV_schema.sql
@@ -152,18 +127,6 @@ def lot_deja_ingere(spark, chemin_table, batch_id):
     lot = spark.read.format("delta").load(chemin_table).filter(F.col("_batch_id") == batch_id)
     
     return not lot.isEmpty()
-
-# Ajouter un DataFrame à une table Delta
-def ajouter_delta(spark, df, chemin):
-    """Ajoute `df` à la table Delta de `chemin`, créée en append-only si elle n'existe pas."""
-    (
-        DeltaTable.createIfNotExists(spark)
-        .location(chemin)
-        .addColumns(df.schema)
-        .property("delta.appendOnly", "true")
-        .execute()
-    )
-    df.write.format("delta").mode("append").save(chemin)
 
 # Vérifier l'en-tête du fichier CSV
 def verifier_entete(chemin_fichier, cfg):
@@ -234,18 +197,6 @@ def charger(spark, cfg, chemin_fichier, batch_id, compteurs, ingestion_ts):
             f"mais {compteurs.ecrites} écrites dans Bronze"
         )
 
-# Journaliser l'exécution dans Bronze/_journal
-def ecrire_journal(spark, cfg, batch_id, compteurs, statut, debut, message):
-    fin = datetime.now(timezone.utc)
-    log.info(
-        "%s statut=%s lues=%d ecrites=%d rejetees=%d",
-        cfg.table, statut, compteurs.lues, compteurs.ecrites, compteurs.rejetees,
-    )
-    ligne = (JOB, cfg.source, cfg.table, batch_id, compteurs.lues, compteurs.ecrites,
-             compteurs.rejetees, statut, message, debut, fin)
-    ajouter_delta(spark, spark.createDataFrame([ligne], SCHEMA_JOURNAL), chemin_lake("bronze", "_journal"))
-
-
 # ingerer_csv ingère un fichier dans sa table Bronze et journalise l'exécution. Renvoie le statut.
 def ingerer_csv(spark, cfg, chemin_fichier):
     """Ingère un fichier dans sa table Bronze et journalise l'exécution. Renvoie le statut."""
@@ -264,7 +215,7 @@ def ingerer_csv(spark, cfg, chemin_fichier):
         raise
     finally:
         try:
-            ecrire_journal(spark, cfg, batch_id, compteurs, statut, debut, message)
+            ecrire_journal(spark, "bronze", JOB, cfg.source, cfg.table, batch_id, compteurs, statut, debut, message)
         except Exception:
             log.exception("Journal non écrit pour %s", cfg.table)
     return statut
