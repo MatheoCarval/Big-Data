@@ -3,24 +3,24 @@
     python -m unittest tests.test_normalize
 """
 
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from pipelines.common import normalize
+from pipelines.common.session_spark import creer_session
 
 
 class TestNormalize(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # session minimale : ces fonctions n'ont besoin ni de Delta ni de S3A
-        cls.spark = (
-            SparkSession.builder.master("local[1]")
-            .appName("test_normalize")
-            .config("spark.ui.enabled", "false")
-            .getOrCreate()
-        )
+        # session du projet, Delta inclus : la JVM n'est lancée qu'une fois par processus, une session sans Delta
+        # créée la première priverait les autres modules de test de Delta
+        with mock.patch.dict(os.environ, {"LAKE_ROOT": tempfile.gettempdir()}):
+            cls.spark = creer_session("test_normalize")
 
     @classmethod
     def tearDownClass(cls):
@@ -105,6 +105,19 @@ class TestNormalize(unittest.TestCase):
             ("0", None),
             ("000", None),
             ("", None),
+            (None, None),
+        ])
+
+    def test_identifiant_organisation_majuscules_sans_espaces(self):
+        self.verifier(normalize.normaliser_identifiant_organisation, [
+            ("F750712184", "F750712184"),
+            ("f750712184", "F750712184"),
+            (" F 750 712 184 ", "F750712184"),
+            ("F750 712184", "F750712184"),   # espace insécable
+            ("R00001", "R00001"),
+            ("00012", "00012"),           # contrairement aux identifiants professionnels, les zéros restent
+            ("", None),
+            ("   ", None),
             (None, None),
         ])
 

@@ -76,6 +76,14 @@ def normaliser_identifiant_professionnel(col_identifiant):
     sans_zeros = F.regexp_replace(F.trim(col_identifiant), r"^0+", "")# Retirer les zéros initiaux
     return F.when(sans_zeros != "", sans_zeros)
 
+
+# Identifiant d'organisation (clé de dim_etablissement) : majuscules, sans aucune espace ; null s'il est vide
+def normaliser_identifiant_organisation(col_identifiant):
+    sans_espaces = F.regexp_replace(col_identifiant.cast("string"), r"[\s ]+", "")  # \s ne couvre pas l'espace insécable
+    nettoye = F.upper(sans_espaces)
+    return F.when(nettoye != "", nettoye)
+
+
 # Calcule la clé de substitution à partir des colonnes identifiants initiales, après normalisation. 
 # La clé est identique d'un chargement à l'autre, même si les colonnes changent de type.
 def cle_substitution(*colonnes):
