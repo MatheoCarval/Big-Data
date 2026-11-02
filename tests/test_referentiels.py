@@ -3,12 +3,15 @@
     python -m unittest tests.test_referentiels
 """
 
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from pipelines.common import referentiels
+from pipelines.common.session_spark import creer_session
 
 REGIONS_METROPOLE = {"11", "24", "27", "28", "32", "44", "52", "53", "75", "76", "84", "93", "94"}
 
@@ -45,12 +48,9 @@ class TestDictionnaire(unittest.TestCase):
 class TestRecherche(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.spark = (
-            SparkSession.builder.master("local[1]")
-            .appName("test_referentiels")
-            .config("spark.ui.enabled", "false")
-            .getOrCreate()
-        )
+        # session du projet, Delta inclus (voir test_normalize)
+        with mock.patch.dict(os.environ, {"LAKE_ROOT": tempfile.gettempdir()}):
+            cls.spark = creer_session("test_referentiels")
 
     @classmethod
     def tearDownClass(cls):
