@@ -25,12 +25,14 @@ def _code_normalise(col, longueur, motif):
     """Code nettoyé et complété de zéros à gauche jusqu'à `longueur`, ou null s'il est invalide.
 
     lpad tronque ce qui dépasse : on contrôle donc la longueur avant de compléter, sinon un code trop
-    long deviendrait un code valide mais faux. Un texte vide ou fait de zéros n'est pas un code.
+    long deviendrait un code valide mais faux. Un code lu comme un nombre perd un seul zéro initial : un
+    texte plus court n'est pas un code abîmé (« 75 » ne devient pas « 00075 »). Un texte vide ou fait de
+    zéros n'est pas un code.
     """
     texte = F.upper(F.trim(col.cast("string")))
     complete = F.lpad(texte, longueur, "0")
     valide = (
-        (F.length(texte) > 0)
+        (F.length(texte) >= longueur - 1)
         & (F.length(texte) <= longueur)
         & complete.rlike(motif)
         & ~complete.rlike("^0+$")

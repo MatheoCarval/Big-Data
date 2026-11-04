@@ -55,6 +55,12 @@ class TestNormalize(unittest.TestCase):
             (None, None),
         ])
 
+    def test_un_code_ne_perd_qu_un_seul_zero_initial(self):
+        # lu comme un nombre, un code perd au plus un zéro : un texte plus court n'est pas un code abîmé, il est invalide
+        self.verifier(normalize.normaliser_code_postal, [("1000", "01000"), ("100", None), ("75", None)])
+        self.verifier(normalize.normaliser_insee, [("1001", "01001"), ("101", None), ("75", None)])
+        self.verifier(normalize.normaliser_finess, [("12345678", "012345678"), ("1234567", None), ("12345", None)])
+
     def test_insee_restitue_les_zeros_et_controle_le_format(self):
         self.verifier(normalize.normaliser_insee, [
             ("75056", "75056"),
